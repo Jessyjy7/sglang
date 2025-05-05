@@ -54,7 +54,8 @@ class CompletionTemplate:
 
 
 # A global registry for all completion templates
-completion_templates: dict[str, CompletionTemplate] = {}
+from typing import Dict
+completion_templates: Dict[str, CompletionTemplate] = {}
 
 
 def load_completion_template_for_openai_api(completion_template_arg):
