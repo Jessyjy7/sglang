@@ -5,18 +5,16 @@ import time
 import sglang as sgl
 from sglang.test.test_utils import add_common_sglang_args_and_parse, select_sglang_backend
 
-# 1) Define a multi‐turn conversation *per* agent
+# 1) Define a multi‐turn conversation per agent
 @sgl.function
 def agent_fn(s, role: str, prompt: str):
-    # System prompt for this agent
     s += sgl.system(f"You are the {role} agent collaborating in a multi‐agent system.")
-    # Turn 1: introduce the problem
+    # Turn 1
     s += sgl.user(prompt)
     s += sgl.assistant(sgl.gen("first_reply", max_tokens=128, temperature=0.0))
-    # Turn 2: ask to refine
+    # Turn 2
     s += sgl.user("Please refine or expand on your first reply.")
     s += sgl.assistant(sgl.gen("second_reply", max_tokens=128, temperature=0.0))
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -34,10 +32,10 @@ def main():
         required=True,
         help="The shared prompt for all agents",
     )
-    # Add server flags: --model-path, --device, --attention-backend, --schedule-policy, --port
+    # adds --model-path, --device, --attention-backend, --schedule-policy, --port, etc.
     args = add_common_sglang_args_and_parse(parser)
 
-    # 2) Hook up the backend (reads your --schedule-policy lpm, --attention-backend triton, etc.)
+    # 2) Wire up the backend (reads your --schedule-policy, --attention-backend, etc.)
     backend = select_sglang_backend(args)
     sgl.set_default_backend(backend)
 
@@ -46,7 +44,7 @@ def main():
 
     # 4) Run them all in parallel
     tic = time.time()
-    results = agent_fn.run_batch(
+    states = agent_fn.run_batch(
         calls,
         num_threads=len(calls),
         progress_bar=True,
@@ -54,12 +52,12 @@ def main():
     elapsed = time.time() - tic
     print(f"✅ Completed in {elapsed:.2f}s")
 
-    # 5) Sync and grab the shared radix‐attention tree from *one* ProgramState
-    results[0].sync()
-    # The internal tree is in results[0].state.graph (a rustworkx.PyGraph)
-    graph = results[0].state.graph
+    # 5) Sync and grab the shared radix‐attention tree from the first state
+    state = states[0]
+    state.sync()  # ensure all sub-processes have finished
 
-    # 6) Serialize to Graphviz DOT
+    # 6) Extract the rustworkx.PyGraph and serialize to Graphviz DOT
+    graph = state.graph        # <-- no .state here
     dot = graph.to_dot()
     with open("multi_agent_tree.dot", "w") as fout:
         fout.write(dot)
