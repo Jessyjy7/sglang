@@ -4,7 +4,7 @@ import argparse
 import sglang as sgl
 from sglang.test.test_utils import add_common_sglang_args_and_parse, select_sglang_backend
 
-# 1) Define your one-turn “agent” function
+# 1) Define your single‐turn “agent” function
 @sgl.function
 def agent_fn(s, role, prompt):
     s += sgl.system(f"You are a {role} agent that helps solve problems by delegation.")
@@ -18,7 +18,7 @@ def agent_fn(s, role, prompt):
     )
 
 def main():
-    # 2) Set up flags for roles & prompt
+    # 2) Parse roles & prompt (plus the common SGLang server flags)
     parser = argparse.ArgumentParser(
         description="Multi-agent radix-attention tree inspector"
     )
@@ -34,27 +34,23 @@ def main():
         default="Brainstorm three innovative applications of AI in education.",
         help="Shared prompt for all agents",
     )
-
-    # 3) Add the common SGLang server args (model-path, device, port, etc.)
     args = add_common_sglang_args_and_parse(parser)
 
-    # 4) Hook up the HTTP/CUDA backend
+    # 3) Wire up the backend (this reads --model-path, --device, --schedule-policy, etc.)
     backend = select_sglang_backend(args)
     sgl.set_default_backend(backend)
 
-    # 5) Build one batch call per role
+    # 4) Build one call per role
     calls = [{"role": r, "prompt": args.prompt} for r in args.roles]
 
-    # 6) Launch them in parallel under the LPM (radix) scheduler
+    # 5) Run them all in parallel (server already knows to use LPM/Triton from its launch flags)
     results = agent_fn.run_batch(
         calls,
-        schedule_policy="lpm",        # largest-prefix-most first
-        attention_backend="triton",   # Triton radix kernels
         num_threads=len(calls),
         progress_bar=True,
     )
 
-    # 7) Take the first result, sync, and ask it to dump its internal tree
+    # 6) Sync & dump the merged radix‐attention tree
     result = results[0]
     result.sync()
     result.dump_state_graph("multi_agent_tree.dot")
