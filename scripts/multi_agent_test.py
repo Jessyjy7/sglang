@@ -1,57 +1,35 @@
-#!/usr/bin/env python3
-import argparse
-
 import sglang as sgl
-from sglang.utils import dump_state_text
-from sglang.test.test_utils import add_common_sglang_args_and_parse, select_sglang_backend
 
-# 1) Define a one‐turn “agent” that just reads a role + prompt
+# 1) define your per-agent function
 @sgl.function
 def agent_fn(s, role, prompt):
-    s += sgl.system(f"You are a {role} agent that helps solve problems by delegation.")
+    s += sgl.system(f"You are a {role} agent that solves problems by delegation.")
     s += sgl.user(prompt)
-    s += sgl.assistant(
-        sgl.gen(
-            "output",
-            max_tokens=64,      # correct arg name
-            temperature=0.0,
-        )
-    )
+    s += sgl.assistant(sgl.gen("output"))    # use defaults or supply your own sampling args
 
 def main():
-    # 2) Parse roles + prompt, plus the usual SGLang server flags
-    parser = argparse.ArgumentParser(description="Multi‐agent state dumper")
-    parser.add_argument(
-        "--roles",
-        nargs="+",
-        default=["visionary_ideator", "practical_engineer", "ethical_reviewer"],
-        help="List of agent roles to spawn",
-    )
-    parser.add_argument(
-        "--prompt",
-        type=str,
-        default="Brainstorm three innovative applications of AI in education.",
-        help="Shared prompt for all agents",
-    )
-    args = add_common_sglang_args_and_parse(parser)
+    roles  = ["visionary_ideator","practical_engineer","ethical_reviewer"]
+    prompt = "Brainstorm three innovative applications of AI in education."
+    calls  = [{"role":r,"prompt":prompt} for r in roles]
 
-    # 3) Hook up the HTTP/CUDA backend you already started
-    backend = select_sglang_backend(args)
-    sgl.set_default_backend(backend)
-
-    # 4) Build one call per role
-    calls = [{"role": r, "prompt": args.prompt} for r in args.roles]
-
-    # 5) Run them in parallel (server was launched with --schedule-policy lpm, --attention-backend triton)
+    # 2) run them in parallel so you get prefix sharing
     results = agent_fn.run_batch(
-        calls,
-        num_threads=len(calls),
-        progress_bar=True,
+      calls,
+      num_threads=len(roles),
+      progress_bar=True,
+      schedule_policy="lpm",           # radix scheduler
+      attention_backend="triton",      # radix‐kernels-enabled backend
     )
 
-    # 6) Dump *all* agents' internal prefix/cache states to a text file
-    dump_state_text("multi_agent_states.txt", results)
-    print("✅ Wrote multi_agent_states.txt – inspect or post‐process for your tree diagram")
+    # 3) pick one result and sync
+    res = results[0]
+    res.sync()
 
-if __name__ == "__main__":
+    # 4) write the dot
+    dot = res.state.graph.to_dot()
+    with open("multi_agent_tree.dot","w") as f:
+        f.write(dot)
+    print("Wrote multi_agent_tree.dot")
+
+if __name__=="__main__":
     main()
