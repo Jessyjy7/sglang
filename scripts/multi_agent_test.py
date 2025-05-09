@@ -17,7 +17,6 @@ def agent_fn(s, role: str, prompt: str):
     s += sgl.system(f"You are the {role} agent, solve problems by delegation.")
     s += sgl.user(prompt)
     # …and each agent produces one assistant reply
-    #     ← FIXED: use max_tokens not max_new_tokens
     s += sgl.assistant(
         sgl.gen("output", max_tokens=64, temperature=0.0)
     )
@@ -40,19 +39,17 @@ def main():
         required=True,
         help="The single prompt text to send to each role",
     )
-    # this adds --device, --attention-backend, --schedule-policy, --port, etc.
+    # adds --device, --attention-backend, --schedule-policy, --port, etc.
     args = add_common_sglang_args_and_parse(parser)
 
-    # pick up e.g. --schedule-policy lpm, --attention-backend triton
     backend = select_sglang_backend(args)
     sgl.set_default_backend(backend)
 
-    # build the batch of calls
     calls = [{"role": r, "prompt": args.prompt} for r in args.roles]
 
-    # run them all in parallel
     tic = time.time()
-    results = agent_fn.run_batch(
+    # run_batch returns a List[ProgramState], so capture them directly
+    states = agent_fn.run_batch(
         calls,
         num_threads=len(calls),
         progress_bar=True,
@@ -60,9 +57,7 @@ def main():
     latency = time.time() - tic
     print(f"✅ done in {latency:.2f}s, dumping state text…")
 
-    # pull out the .state from each ProgramResult
-    states = [r.state for r in results]
-    # write a human-readable dump of the radix tree + eviction log
+    # dump them all in one human-readable file
     dump_state_text("multi_agent_states.txt", states)
     print("→ wrote multi_agent_states.txt")
 
