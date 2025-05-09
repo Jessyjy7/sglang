@@ -3,63 +3,71 @@ import argparse
 import time
 
 import sglang as sgl
-from sglang.test.test_utils import (
-    add_common_sglang_args_and_parse,
-    select_sglang_backend,
-)
-from sglang.utils import dump_state_text
+from sglang.test.test_utils import add_common_sglang_args_and_parse, select_sglang_backend
 
-# —————————————————————————————————————————————————————
-# 1) Define your multi-agent “function”
+# 1) Define a multi‐turn conversation *per* agent
 @sgl.function
 def agent_fn(s, role: str, prompt: str):
-    # each “agent” gets its own system prompt…
-    s += sgl.system(f"You are the {role} agent, solve problems by delegation.")
+    # System prompt for this agent
+    s += sgl.system(f"You are the {role} agent collaborating in a multi‐agent system.")
+    # Turn 1: introduce the problem
     s += sgl.user(prompt)
-    # …and each agent produces one assistant reply
-    s += sgl.assistant(
-        sgl.gen("output", max_tokens=64, temperature=0.0)
-    )
+    s += sgl.assistant(sgl.gen("first_reply", max_tokens=128, temperature=0.0))
+    # Turn 2: ask to refine
+    s += sgl.user("Please refine or expand on your first reply.")
+    s += sgl.assistant(sgl.gen("second_reply", max_tokens=128, temperature=0.0))
 
-# —————————————————————————————————————————————————————
-# 2) Command-line driver
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Run N roles in parallel and dump their prefix tree"
+        description="Run multiple agents in parallel and dump the full radix tree"
     )
     parser.add_argument(
         "--roles",
         nargs="+",
         required=True,
-        help="Space-separated list of agent roles, e.g. visionary engineer reviewer",
+        help="List of agent roles, e.g. visionary_ideator practical_engineer ethical_reviewer",
     )
     parser.add_argument(
         "--prompt",
         type=str,
         required=True,
-        help="The single prompt text to send to each role",
+        help="The shared prompt for all agents",
     )
-    # adds --device, --attention-backend, --schedule-policy, --port, etc.
+    # Add server flags: --model-path, --device, --attention-backend, --schedule-policy, --port
     args = add_common_sglang_args_and_parse(parser)
 
+    # 2) Hook up the backend (reads your --schedule-policy lpm, --attention-backend triton, etc.)
     backend = select_sglang_backend(args)
     sgl.set_default_backend(backend)
 
+    # 3) Build one call per role
     calls = [{"role": r, "prompt": args.prompt} for r in args.roles]
 
+    # 4) Run them all in parallel
     tic = time.time()
-    # run_batch returns a List[ProgramState], so capture them directly
-    states = agent_fn.run_batch(
+    results = agent_fn.run_batch(
         calls,
         num_threads=len(calls),
         progress_bar=True,
     )
-    latency = time.time() - tic
-    print(f"✅ done in {latency:.2f}s, dumping state text…")
+    elapsed = time.time() - tic
+    print(f"✅ Completed in {elapsed:.2f}s")
 
-    # dump them all in one human-readable file
-    dump_state_text("multi_agent_states.txt", states)
-    print("→ wrote multi_agent_states.txt")
+    # 5) Sync and grab the shared radix‐attention tree from *one* ProgramState
+    results[0].sync()
+    # The internal tree is in results[0].state.graph (a rustworkx.PyGraph)
+    graph = results[0].state.graph
+
+    # 6) Serialize to Graphviz DOT
+    dot = graph.to_dot()
+    with open("multi_agent_tree.dot", "w") as fout:
+        fout.write(dot)
+    print("→ Wrote multi_agent_tree.dot")
+
+    print()
+    print("Now render with Graphviz:")
+    print("   dot -Tpng multi_agent_tree.dot -o multi_agent_tree.png")
 
 if __name__ == "__main__":
     main()
