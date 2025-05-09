@@ -1,35 +1,67 @@
+#!/usr/bin/env python3
+import argparse
+import time
+
 import sglang as sgl
+from sglang.test.test_utils import add_common_sglang_args_and_parse, select_sglang_backend
+from sglang.utils import dump_state_text
 
-# 1) define your per-agent function
+# —————————————————————————————————————————————————————
+# 1) Define your multi‐agent “function”
 @sgl.function
-def agent_fn(s, role, prompt):
-    s += sgl.system(f"You are a {role} agent that solves problems by delegation.")
+def agent_fn(s, role: str, prompt: str):
+    # each “agent” gets its own system prompt…
+    s += sgl.system(f"You are the {role} agent, solve problems by delegation.")
     s += sgl.user(prompt)
-    s += sgl.assistant(sgl.gen("output"))    # use defaults or supply your own sampling args
-
-def main():
-    roles  = ["visionary_ideator","practical_engineer","ethical_reviewer"]
-    prompt = "Brainstorm three innovative applications of AI in education."
-    calls  = [{"role":r,"prompt":prompt} for r in roles]
-
-    # 2) run them in parallel so you get prefix sharing
-    results = agent_fn.run_batch(
-      calls,
-      num_threads=len(roles),
-      progress_bar=True,
-      schedule_policy="lpm",           # radix scheduler
-      attention_backend="triton",      # radix‐kernels-enabled backend
+    # …and each agent produces one assistant reply
+    s += sgl.assistant(
+        sgl.gen("output", max_new_tokens=64, temperature=0.0)
     )
 
-    # 3) pick one result and sync
-    res = results[0]
-    res.sync()
+# —————————————————————————————————————————————————————
+# 2) Command‐line driver
+def main():
+    parser = argparse.ArgumentParser(
+        description="Run N roles in parallel and dump their prefix tree"
+    )
+    parser.add_argument(
+        "--roles",
+        nargs="+",
+        required=True,
+        help="Space-separated list of agent roles, e.g. visionary engineer reviewer",
+    )
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        required=True,
+        help="The single prompt text to send to each role",
+    )
+    # this adds --device, --attention-backend, --schedule-policy, --port, etc.
+    args = add_common_sglang_args_and_parse(parser)
 
-    # 4) write the dot
-    dot = res.state.graph.to_dot()
-    with open("multi_agent_tree.dot","w") as f:
-        f.write(dot)
-    print("Wrote multi_agent_tree.dot")
+    # pick up e.g. --schedule-policy lpm, --attention-backend triton, etc.
+    backend = select_sglang_backend(args)
+    sgl.set_default_backend(backend)
 
-if __name__=="__main__":
+    # build the batch
+    calls = [{"role": r, "prompt": args.prompt} for r in args.roles]
+
+    # run them all in parallel
+    tic = time.time()
+    results = agent_fn.run_batch(
+        calls,
+        num_threads=len(calls),
+        progress_bar=True,
+    )
+    latency = time.time() - tic
+
+    print(f"✅ done in {latency:.2f}s, dumping state text…")
+    # pull out the .state from each ProgramResult
+    states = [r.state for r in results]
+
+    # write a human‐readable dump of the entire radix tree + eviction log
+    dump_state_text("multi_agent_states.txt", states)
+    print("→ wrote   multi_agent_states.txt")
+
+if __name__ == "__main__":
     main()
