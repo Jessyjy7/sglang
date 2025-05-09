@@ -3,8 +3,9 @@ import argparse
 
 import sglang as sgl
 from sglang.test.test_utils import add_common_sglang_args_and_parse, select_sglang_backend
+from sglang.srt.utils import dump_state_graph
 
-# 1) Define your single-turn “agent” function
+# 1) Single‐turn “agent” definition
 @sgl.function
 def agent_fn(s, role, prompt):
     s += sgl.system(f"You are a {role} agent that helps solve problems by delegation.")
@@ -12,13 +13,13 @@ def agent_fn(s, role, prompt):
     s += sgl.assistant(
         sgl.gen(
             "output",
-            max_tokens=64,      # <–– use max_tokens, not max_new_tokens
+            max_tokens=64,   # correct param name
             temperature=0.0,
         )
     )
 
 def main():
-    # 2) Parse roles & prompt (plus the common SGLang server flags)
+    # 2) CLI flags for your roles/prompt + common server args
     parser = argparse.ArgumentParser(
         description="Multi-agent radix-attention tree inspector"
     )
@@ -36,24 +37,23 @@ def main():
     )
     args = add_common_sglang_args_and_parse(parser)
 
-    # 3) Hook up the HTTP/CUDA backend (reads --model-path, --device, --schedule-policy, etc.)
+    # 3) Wire up the backend (reads --model-path, --device, --schedule-policy, etc.)
     backend = select_sglang_backend(args)
     sgl.set_default_backend(backend)
 
-    # 4) Build one batch call per role
+    # 4) Build one call per agent role
     calls = [{"role": r, "prompt": args.prompt} for r in args.roles]
 
-    # 5) Run them all in parallel (server already launched with LPM/Triton)
+    # 5) Fire them all in parallel (server already using LPM/Triton from its launch flags)
     results = agent_fn.run_batch(
         calls,
         num_threads=len(calls),
         progress_bar=True,
     )
 
-    # 6) Sync & dump the merged radix-attention prefix tree
-    result = results[0]
-    result.sync()
-    result.dump_state_graph("multi_agent_tree.dot")
+    # 6) Grab the first ProgramState, and dump its radix‐attention tree
+    state = results[0]
+    dump_state_graph(state, "multi_agent_tree.dot")
     print("Wrote multi_agent_tree.dot; render locally with:")
     print("    dot -Tpng multi_agent_tree.dot -o multi_agent_tree.png")
 
