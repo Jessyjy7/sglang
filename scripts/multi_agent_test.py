@@ -4,7 +4,7 @@ import argparse
 import sglang as sgl
 from sglang.test.test_utils import add_common_sglang_args_and_parse, select_sglang_backend
 
-# 1) Define your single‐turn “agent” function
+# 1) Define your single-turn “agent” function
 @sgl.function
 def agent_fn(s, role, prompt):
     s += sgl.system(f"You are a {role} agent that helps solve problems by delegation.")
@@ -12,7 +12,7 @@ def agent_fn(s, role, prompt):
     s += sgl.assistant(
         sgl.gen(
             "output",
-            max_new_tokens=64,
+            max_tokens=64,      # <–– use max_tokens, not max_new_tokens
             temperature=0.0,
         )
     )
@@ -36,21 +36,21 @@ def main():
     )
     args = add_common_sglang_args_and_parse(parser)
 
-    # 3) Wire up the backend (this reads --model-path, --device, --schedule-policy, etc.)
+    # 3) Hook up the HTTP/CUDA backend (reads --model-path, --device, --schedule-policy, etc.)
     backend = select_sglang_backend(args)
     sgl.set_default_backend(backend)
 
-    # 4) Build one call per role
+    # 4) Build one batch call per role
     calls = [{"role": r, "prompt": args.prompt} for r in args.roles]
 
-    # 5) Run them all in parallel (server already knows to use LPM/Triton from its launch flags)
+    # 5) Run them all in parallel (server already launched with LPM/Triton)
     results = agent_fn.run_batch(
         calls,
         num_threads=len(calls),
         progress_bar=True,
     )
 
-    # 6) Sync & dump the merged radix‐attention tree
+    # 6) Sync & dump the merged radix-attention prefix tree
     result = results[0]
     result.sync()
     result.dump_state_graph("multi_agent_tree.dot")
