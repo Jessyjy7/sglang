@@ -1,38 +1,44 @@
-# make_trie.py
-import sys
+#!/usr/bin/env python3
+from graphviz import Digraph
 from transformers import AutoTokenizer
+import sys
 
-def build_trie(tokens):
-    # Each node is (start, end, [children])
-    root = (0, len(tokens), [])
-    def split(node):
-        start, end, children = node
-        length = end - start
-        # stop splitting when the span is just 1 token
-        if length <= 1:
-            return
-        # split in half to mimic a radix‐cache page
+def build_prefix_trie(tokens, tokenizer):
+    def recurse(start, end):
+        text = tokenizer.decode(tokens[start:end], skip_special_tokens=False).replace("\\n", "\n")
+        node = [start, end, text, []]
+        if end - start <= 1:
+            return node
         mid = (start + end) // 2
-        left = [start, mid, []]
-        right = [mid, end, []]
-        node[2].extend([left, right])
-        split(left)
-        split(right)
-    split(root)
-    return root
+        node[3].append(recurse(start, mid))
+        node[3].append(recurse(mid, end))
+        return node
+    return recurse(0, len(tokens))
 
-def print_trie(node, depth=0):
-    start, end, children = node
-    print("  " * depth + f"span=({start},{end})")
-    for c in children:
-        print_trie(c, depth + 1)
+def visualize_trie(root, output_svg="prefix_trie.svg"):
+    g = Digraph("PrefixTrie", format="svg")
+    counter = {"n": 0}
+
+    def add(node, parent=None):
+        idx = f"n{counter['n']}"
+        counter["n"] += 1
+        # label with the substring (newlines shown as actual breaks)
+        g.node(idx, node[2] or "∅", shape="box")
+        if parent:
+            g.edge(parent, idx)
+        for child in node[3]:
+            add(child, idx)
+
+    add(root)
+    g.render(output_svg.replace(".svg", ""), cleanup=True)
+    print(f"Wrote {output_svg}")
 
 if __name__ == "__main__":
-    if len(sys.argv)!=2:
-        print("Usage: python make_trie.py <prompt_or_file>")
+    if len(sys.argv) != 2:
+        print("Usage: python visualize_prefix_trie.py <text_or_path>")
         sys.exit(1)
+
     inp = sys.argv[1]
-    # if it’s an actual file on disk, read it; otherwise treat it literally
     try:
         text = open(inp, encoding="utf-8").read()
     except FileNotFoundError:
@@ -40,5 +46,6 @@ if __name__ == "__main__":
 
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
     tokens = tokenizer.encode(text, add_special_tokens=False)
-    trie = build_trie(tokens)
-    print_trie(trie)
+
+    root = build_prefix_trie(tokens, tokenizer)
+    visualize_trie(root)
