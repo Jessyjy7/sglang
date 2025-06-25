@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: sglang-wentao
+  name: sglang-jiaying
   labels:
-    k8s-app: sglang-wentao
+    k8s-app: sglang-jiaying
 spec:
   replicas: 1
   selector:
     matchLabels:
-      k8s-app: sglang-wentao
+      k8s-app: sglang-jiaying
   template:
     metadata:
       labels:
-        k8s-app: sglang-wentao
+        k8s-app: sglang-jiaying
     spec:
       affinity:
         nodeAffinity:
@@ -37,11 +37,11 @@ spec:
              cpu: 8
         volumeMounts:
         - mountPath: /mnt/data
-          name: pvc-wentao
+          name: pvc-jiaying
         command: ["sh", "-c", "sleep infinity"]
       volumes:
-      - name: pvc-wentao
+      - name: pvc-jiaying
         persistentVolumeClaim:
-          claimName: pvc-wentao
+          claimName: pvc-jiaying
       imagePullSecrets:
       - name: regcred 
