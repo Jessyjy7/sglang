@@ -44,4 +44,4 @@ spec:
         persistentVolumeClaim:
           claimName: pvc-jiaying
       imagePullSecrets:
-      - name: regcred 
+      - name: regcred
